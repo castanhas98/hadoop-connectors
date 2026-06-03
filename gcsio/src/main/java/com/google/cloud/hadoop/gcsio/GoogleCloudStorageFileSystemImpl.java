@@ -983,6 +983,17 @@ public class GoogleCloudStorageFileSystemImpl implements GoogleCloudStorageFileS
   @Override
   public ListPage<FileInfo> listFileInfoForPrefixPage(
       URI prefix, ListFileOptions listOptions, String pageToken) throws IOException {
+    return listFileInfoForPrefixPage(
+        prefix, listOptions, pageToken, ListObjectOptions.DEFAULT_FLAT_LIST);
+  }
+
+  @Override
+  public ListPage<FileInfo> listFileInfoForPrefixPage(
+      URI prefix,
+      ListFileOptions listOptions,
+      String pageToken,
+      ListObjectOptions listObjectOptions)
+      throws IOException {
     logger.atFiner().log(
         "listAllFileInfoForPrefixPage(prefix: %s, pageToken:%s)", prefix, pageToken);
     StorageResourceId prefixId = getPrefixId(prefix);
@@ -990,7 +1001,7 @@ public class GoogleCloudStorageFileSystemImpl implements GoogleCloudStorageFileS
         gcs.listObjectInfoPage(
             prefixId.getBucketName(),
             prefixId.getObjectName(),
-            updateListObjectOptions(ListObjectOptions.DEFAULT_FLAT_LIST, listOptions),
+            updateListObjectOptions(listObjectOptions, listOptions),
             pageToken);
     List<FileInfo> fileInfosPage = FileInfo.fromItemInfos(itemInfosPage.getItems());
     fileInfosPage.sort(FILE_INFO_PATH_COMPARATOR);

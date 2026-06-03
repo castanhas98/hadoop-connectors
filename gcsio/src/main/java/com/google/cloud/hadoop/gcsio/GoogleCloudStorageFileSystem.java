@@ -232,6 +232,26 @@ public interface GoogleCloudStorageFileSystem {
       URI prefix, ListFileOptions listOptions, String pageToken) throws IOException;
 
   /**
+   * DX-33520: Equivalent to {@link #listFileInfoForPrefixPage(URI, ListFileOptions, String)} but
+   * accepts explicit {@link ListObjectOptions} to control listing behaviour (e.g. {@link
+   * ListObjectOptions#DEFAULT_FLAT_LIST} for recursive, {@link ListObjectOptions#DEFAULT} for
+   * non-recursive/delimiter-scoped).
+   *
+   * @param prefix the prefix to use to list all matching objects.
+   * @param listOptions options controlling which object fields to return.
+   * @param pageToken the page token to continue a previous listing.
+   * @param listObjectOptions options controlling GCS object listing behaviour.
+   */
+  default ListPage<FileInfo> listFileInfoForPrefixPage(
+      URI prefix,
+      ListFileOptions listOptions,
+      String pageToken,
+      ListObjectOptions listObjectOptions)
+      throws IOException {
+    return listFileInfoForPrefixPage(prefix, listOptions, pageToken);
+  }
+
+  /**
    * If the given path points to a directory then the information about its children is returned,
    * otherwise information about the given file is returned.
    *

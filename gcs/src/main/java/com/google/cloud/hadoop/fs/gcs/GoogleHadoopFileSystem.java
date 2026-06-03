@@ -49,6 +49,7 @@ import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystemOptions;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageItemInfo;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageStatistics;
 import com.google.cloud.hadoop.gcsio.ListFileOptions;
+import com.google.cloud.hadoop.gcsio.ListObjectOptions;
 import com.google.cloud.hadoop.gcsio.StorageResourceId;
 import com.google.cloud.hadoop.gcsio.TrackedFeatures;
 import com.google.cloud.hadoop.gcsio.UpdatableItemInfo;
@@ -89,6 +90,7 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1147,6 +1149,78 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
     InvocationIdContext.setInvocationId();
     incrementStatistic(GhfsStatistic.INVOCATION_LIST_LOCATED_STATUS);
     return super.listLocatedStatus(f);
+  }
+
+  /**
+   * DX-33520: Returns a lazy, paginated iterator over files under hadoopPath, for both recursive
+   * and non-recursive cases.
+   */
+  @Override
+  public RemoteIterator<LocatedFileStatus> listFiles(Path hadoopPath, boolean recursive)
+      throws IOException {
+    checkArgument(hadoopPath != null, "hadoopPath must not be null");
+    checkOpen();
+    logger.atFiner().log("listFiles(hadoopPath: %s, recursive: %b)", hadoopPath, recursive);
+    return new GCSFilesListIterator(hadoopPath, recursive);
+  }
+
+  /**
+   * DX-33520 / DX-35691 / DX-35915: Paginated RemoteIterator for GCS listings, both recursive and
+   * non-recursive. Appends a trailing '/' to the GCS URI for all non-root paths so that listing is
+   * scoped to the directory prefix. The isDirectory() check is intentionally omitted (DX-35915):
+   * checking it on a file path returns incorrect results.
+   */
+  private class GCSFilesListIterator implements RemoteIterator<LocatedFileStatus> {
+    private String nextPageToken;
+    private final Path hadoopPath;
+    private final boolean recursive;
+    private Iterator<FileInfo> currentPageIterator;
+
+    GCSFilesListIterator(Path hadoopPath, boolean recursive) throws IOException {
+      this.hadoopPath = hadoopPath;
+      this.recursive = recursive;
+      loadNextBatch();
+    }
+
+    @Override
+    public boolean hasNext() throws IOException {
+      if (currentPageIterator == null) {
+        return false;
+      }
+      if (!currentPageIterator.hasNext() && nextPageToken != null) {
+        loadNextBatch();
+      }
+      return currentPageIterator != null && currentPageIterator.hasNext();
+    }
+
+    private void loadNextBatch() throws IOException {
+      URI gcsURI = getGcsPath(hadoopPath);
+      // Scope the prefix to the directory for non-root paths. Use UriPaths.toDirectory() rather
+      // than string concatenation to correctly handle special characters (e.g. quotes) in path
+      // components (DX-35691/DX-35915).
+      if (hadoopPath.getParent() != null) {
+        gcsURI = UriPaths.toDirectory(gcsURI);
+      }
+      ListObjectOptions listObjectOptions =
+          recursive ? ListObjectOptions.DEFAULT_FLAT_LIST : ListObjectOptions.DEFAULT;
+      GoogleCloudStorage.ListPage<FileInfo> page =
+          getGcsFs()
+              .listFileInfoForPrefixPage(gcsURI, LIST_OPTIONS, nextPageToken, listObjectOptions);
+      if (page != null && page.getItems() != null && !page.getItems().isEmpty()) {
+        nextPageToken = page.getNextPageToken();
+        currentPageIterator = page.getItems().iterator();
+      } else {
+        nextPageToken = null;
+        currentPageIterator = null;
+      }
+    }
+
+    @Override
+    public LocatedFileStatus next() throws IOException {
+      checkArgument(hasNext(), "No next element");
+      return new LocatedFileStatus(
+          getGoogleHadoopFileStatus(currentPageIterator.next(), getUgiUserName()), null);
+    }
   }
 
   @Override
