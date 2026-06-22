@@ -458,6 +458,18 @@ public class GoogleHadoopFileSystemTest extends GoogleHadoopFileSystemIntegratio
     assertThat(logOutput.toString()).contains("Failed to stop cloud logging service");
   }
 
+  @Test
+  public void blockSize_sizeSuffix() throws Exception {
+    Configuration config = new Configuration();
+    config.set("fs.gs.block.size", "128m");
+    config.setBoolean("fs.gs.lazy.init.enable", true);
+    config.setEnum(GCS_CLIENT_TYPE.toString(), storageClientType);
+    GoogleHadoopFileSystem fs = new GoogleHadoopFileSystem();
+    fs.initialize(new URI("gs://test-bucket/"), config);
+    assertThat(fs.getDefaultBlockSize()).isEqualTo(128 * 1024 * 1024L);
+    fs.close();
+  }
+
   // -----------------------------------------------------------------
   // Inherited tests that we suppress because their behavior differs
   // from the base class.
