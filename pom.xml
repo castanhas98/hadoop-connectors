@@ -77,6 +77,9 @@
     <google.auto-value.version>1.10.4</google.auto-value.version>
     <!-- Library bom for Java-Storage -->
     <google.cloud.library.bom.version>26.56.0</google.cloud.library.bom.version>
+    <!-- Override grpc version to bring in a newer Netty (4.1.133.Final vs 4.1.110.Final from
+         libraries-bom 26.56.0). Must be imported before libraries-bom to take precedence. -->
+    <grpc.version>1.82.2</grpc.version>
     <google.error-prone.version>2.16</google.error-prone.version>
     <google.flogger.version>0.7.4</google.flogger.version>
     <google.guava.version>33.1.0-jre</google.guava.version>
@@ -275,6 +278,15 @@
         <groupId>com.google.api-client</groupId>
         <artifactId>google-api-client-gson</artifactId>
         <version>${google.api-client-libraries.version}</version>
+      </dependency>
+      <!-- Must appear before libraries-bom so this version wins over the transitively
+           imported grpc-bom from gapic-generator-java-bom (CVE Netty fix). -->
+      <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-bom</artifactId>
+        <version>${grpc.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>com.google.cloud</groupId>
