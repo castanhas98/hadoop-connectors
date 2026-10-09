@@ -131,6 +131,13 @@
     Maximum number of items to return in response for list Cloud Storage
     requests.
 
+*   `fs.gs.list.files.mode` (default: `LEGACY`)
+
+    Selects the `GoogleHadoopFileSystem.listFiles` implementation. `LEGACY`
+    preserves the existing fork behavior. `PAGED` enables the opt-in,
+    contract-correct implementation that resolves file inputs, filters
+    directory entries, and retains only the current page.
+
 *   `fs.gs.max.wait.for.empty.object.creation` (default: `3s`)
 
     Maximum amount of time to wait after exception during empty object creation.

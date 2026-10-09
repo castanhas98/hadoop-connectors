@@ -61,6 +61,18 @@ public class GoogleHadoopFileSystemTestHelper {
   public static GoogleHadoopFileSystem createInMemoryGoogleHadoopFileSystem(
       CheckedFunction<GoogleCloudStorageOptions, GoogleCloudStorage, IOException> gcsFn)
       throws IOException {
+    return createInMemoryGoogleHadoopFileSystem(gcsFn, new Configuration());
+  }
+
+  public static GoogleHadoopFileSystem createInMemoryGoogleHadoopFileSystem(Configuration config)
+      throws IOException {
+    return createInMemoryGoogleHadoopFileSystem(InMemoryGoogleCloudStorage::new, config);
+  }
+
+  private static GoogleHadoopFileSystem createInMemoryGoogleHadoopFileSystem(
+      CheckedFunction<GoogleCloudStorageOptions, GoogleCloudStorage, IOException> gcsFn,
+      Configuration config)
+      throws IOException {
     GoogleCloudStorageFileSystem memoryGcsFs =
         new GoogleCloudStorageFileSystemImpl(
             gcsFn,
@@ -68,7 +80,7 @@ public class GoogleHadoopFileSystemTestHelper {
                 .setCloudStorageOptions(getInMemoryGoogleCloudStorageOptions())
                 .build());
     GoogleHadoopFileSystem ghfs = new GoogleHadoopFileSystem(memoryGcsFs);
-    initializeInMemoryFileSystem(ghfs, IN_MEMORY_TEST_BUCKET);
+    initializeInMemoryFileSystem(ghfs, IN_MEMORY_TEST_BUCKET, config);
     return ghfs;
   }
 
@@ -76,15 +88,14 @@ public class GoogleHadoopFileSystemTestHelper {
    * Helper for plumbing through an initUri and creating the proper Configuration object. Calls
    * FileSystem.initialize on {@code ghfs}.
    */
-  private static void initializeInMemoryFileSystem(FileSystem ghfs, String initUriString)
-      throws IOException {
+  private static void initializeInMemoryFileSystem(
+      FileSystem ghfs, String initUriString, Configuration config) throws IOException {
     URI initUri;
     try {
       initUri = new URI(initUriString);
     } catch (URISyntaxException e) {
       throw new IllegalArgumentException(e);
     }
-    Configuration config = new Configuration();
     ghfs.initialize(initUri, config);
     // Create test bucket
     ghfs.mkdirs(new Path(initUriString));

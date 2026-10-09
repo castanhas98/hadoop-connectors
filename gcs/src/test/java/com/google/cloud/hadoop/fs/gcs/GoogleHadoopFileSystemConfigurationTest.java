@@ -26,6 +26,7 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem.GcsFileChecksumType;
 import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem.GlobAlgorithm;
+import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem.ListFilesMode;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystemOptions;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystemOptions.ClientType;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageOptions;
@@ -96,6 +97,7 @@ public class GoogleHadoopFileSystemConfigurationTest {
           put("fs.gs.inputstream.support.gzip.encoding.enable", false);
           put("fs.gs.lazy.init.enable", false);
           put("fs.gs.list.max.items.per.call", 5_000);
+          put("fs.gs.list.files.mode", ListFilesMode.LEGACY);
           put("fs.gs.marker.file.pattern", null);
           put("fs.gs.max.requests.per.batch", 15);
           put("fs.gs.max.wait.for.empty.object.creation", 3_000L);

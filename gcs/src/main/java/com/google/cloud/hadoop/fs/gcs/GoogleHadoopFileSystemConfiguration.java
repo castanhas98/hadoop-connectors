@@ -26,6 +26,7 @@ import static java.lang.Math.toIntExact;
 
 import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem.GcsFileChecksumType;
 import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem.GlobAlgorithm;
+import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem.ListFilesMode;
 import com.google.cloud.hadoop.gcsio.CreateFileOptions;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystemOptions;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystemOptions.ClientType;
@@ -252,6 +253,12 @@ public class GoogleHadoopFileSystemConfiguration {
       new HadoopConfigurationProperty<>(
           "fs.gs.list.max.items.per.call",
           GoogleCloudStorageOptions.DEFAULT.getMaxListItemsPerCall());
+
+  /**
+   * Configuration key for selecting the {@link GoogleHadoopFileSystem#listFiles} implementation.
+   */
+  public static final HadoopConfigurationProperty<ListFilesMode> GCS_LIST_FILES_MODE =
+      new HadoopConfigurationProperty<>("fs.gs.list.files.mode", ListFilesMode.LEGACY);
 
   /**
    * Configuration key for the max number of retries for failed HTTP request to GCS. Note that the

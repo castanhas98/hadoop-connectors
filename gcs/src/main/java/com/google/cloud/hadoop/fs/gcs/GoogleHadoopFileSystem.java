@@ -24,6 +24,7 @@ import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemConfiguration
 import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemConfiguration.GCS_FILE_CHECKSUM_TYPE;
 import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemConfiguration.GCS_GLOB_ALGORITHM;
 import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemConfiguration.GCS_LAZY_INITIALIZATION_ENABLE;
+import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemConfiguration.GCS_LIST_FILES_MODE;
 import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemConfiguration.GCS_OPERATION_TRACE_LOG_ENABLE;
 import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemConfiguration.GCS_OUTPUT_STREAM_SYNC_MIN_INTERVAL;
 import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemConfiguration.GCS_WORKING_DIRECTORY;
@@ -93,6 +94,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -208,6 +210,7 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
   private long defaultBlockSize = BLOCK_SIZE.getDefault();
 
   @VisibleForTesting GlobAlgorithm globAlgorithm = GCS_GLOB_ALGORITHM.getDefault();
+  @VisibleForTesting ListFilesMode listFilesMode = GCS_LIST_FILES_MODE.getDefault();
 
   // The bucket the file system is rooted in used for default values of:
   // -- working directory
@@ -313,6 +316,7 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
     }
 
     globAlgorithm = GCS_GLOB_ALGORITHM.get(config, config::getEnum);
+    listFilesMode = GCS_LIST_FILES_MODE.get(config, config::getEnum);
     checksumType = GCS_FILE_CHECKSUM_TYPE.get(config, config::getEnum);
     defaultBlockSize = BLOCK_SIZE.get(config, config::getLongBytes);
     reportedPermissions = new FsPermission(PERMISSIONS_TO_REPORT.get(config, config::get));
@@ -1152,8 +1156,8 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
   }
 
   /**
-   * DX-33520: Returns a lazy, paginated iterator over files under hadoopPath, for both recursive
-   * and non-recursive cases.
+   * Returns a paginated iterator over files under hadoopPath, for both recursive and non-recursive
+   * cases.
    */
   @Override
   public RemoteIterator<LocatedFileStatus> listFiles(Path hadoopPath, boolean recursive)
@@ -1161,6 +1165,9 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
     checkArgument(hadoopPath != null, "hadoopPath must not be null");
     checkOpen();
     logger.atFiner().log("listFiles(hadoopPath: %s, recursive: %b)", hadoopPath, recursive);
+    if (listFilesMode == ListFilesMode.PAGED) {
+      return new ContractCorrectGCSFilesListIterator(hadoopPath, recursive);
+    }
     return new GCSFilesListIterator(hadoopPath, recursive);
   }
 
@@ -1218,6 +1225,91 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
     @Override
     public LocatedFileStatus next() throws IOException {
       checkArgument(hasNext(), "No next element");
+      return new LocatedFileStatus(
+          getGoogleHadoopFileStatus(currentPageIterator.next(), getUgiUserName()), null);
+    }
+  }
+
+  /**
+   * A contract-correct, bounded-memory {@link RemoteIterator} over GCS object listings.
+   *
+   * <p>This implementation is intentionally opt-in while the behavior is validated. It resolves the
+   * input once, returns a file input as a singleton, filters directory entries, and continues
+   * fetching pages when a page contains only directory entries.
+   */
+  private class ContractCorrectGCSFilesListIterator implements RemoteIterator<LocatedFileStatus> {
+    private final URI directoryPath;
+    private final ListObjectOptions listObjectOptions;
+    private Iterator<FileInfo> currentPageIterator = Collections.emptyIterator();
+    private String nextPageToken;
+    private boolean exhausted;
+
+    ContractCorrectGCSFilesListIterator(Path hadoopPath, boolean recursive) throws IOException {
+      FileInfo target = getGcsFs().getFileInfo(getGcsPath(hadoopPath));
+      if (!target.exists()) {
+        throw new FileNotFoundException(
+            String.format(
+                "%s not found: %s", target.isDirectory() ? "Directory" : "File", hadoopPath));
+      }
+
+      if (target.isDirectory()) {
+        directoryPath = UriPaths.toDirectory(target.getPath());
+        listObjectOptions =
+            recursive ? ListObjectOptions.DEFAULT_FLAT_LIST : ListObjectOptions.DEFAULT;
+      } else {
+        directoryPath = null;
+        listObjectOptions = null;
+        currentPageIterator = Collections.singletonList(target).iterator();
+        exhausted = true;
+      }
+    }
+
+    @Override
+    public boolean hasNext() throws IOException {
+      if (currentPageIterator.hasNext()) {
+        return true;
+      }
+      if (exhausted) {
+        return false;
+      }
+
+      loadNextPageWithFiles();
+      return currentPageIterator.hasNext();
+    }
+
+    private void loadNextPageWithFiles() throws IOException {
+      while (true) {
+        GoogleCloudStorage.ListPage<FileInfo> page =
+            getGcsFs()
+                .listFileInfoForPrefixPage(
+                    directoryPath, LIST_OPTIONS, nextPageToken, listObjectOptions);
+
+        nextPageToken = page == null ? null : page.getNextPageToken();
+        exhausted = nextPageToken == null;
+        List<FileInfo> files = new ArrayList<>();
+        if (page != null && page.getItems() != null) {
+          for (FileInfo fileInfo : page.getItems()) {
+            if (!fileInfo.isDirectory()) {
+              files.add(fileInfo);
+            }
+          }
+        }
+        currentPageIterator = files.iterator();
+
+        if (currentPageIterator.hasNext()) {
+          return;
+        }
+        if (nextPageToken == null) {
+          return;
+        }
+      }
+    }
+
+    @Override
+    public LocatedFileStatus next() throws IOException {
+      if (!hasNext()) {
+        throw new NoSuchElementException("No next element");
+      }
       return new LocatedFileStatus(
           getGoogleHadoopFileStatus(currentPageIterator.next(), getUgiUserName()), null);
     }
@@ -2121,6 +2213,15 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
     CONCURRENT,
     DEFAULT,
     FLAT
+  }
+
+  /** Selects the implementation used by {@link #listFiles(Path, boolean)}. */
+  public enum ListFilesMode {
+    /** Preserve the existing Dremio fork behavior. */
+    LEGACY,
+
+    /** Use the opt-in contract-correct, page-at-a-time implementation. */
+    PAGED
   }
 
   /**
